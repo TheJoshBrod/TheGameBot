@@ -1,5 +1,7 @@
-# TheGameBot
+# What is the TheGameBot?
 This repo contains the code for TheGameBot, a Discord bot that offers both multiplayer and single player games.
+
+![Game Logo: Sorry Pieces in front of a Dice](assets/logo.png)
 
 Currently very much a WIP and not yet fully developed.
 
@@ -26,7 +28,9 @@ To add this bot to your server do one of the following:
 
 #### Option 2
 
-1. Have the Discord Server's Administrator open the following link [add link here](todo.com) then add it to the server (requires to give it Administrator rights)
+1. Have the Discord Server's Administrator open the following link [add link here](todo.com) then add it to the server (requires to give it Administrator rights)**
+
+**Will only work if I am hosting, which no guarentees I will be hosting indefinitely
 
 
 ## Usage
