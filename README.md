@@ -42,8 +42,8 @@ It will respond with instructions of how to select a game. You will have 10 seco
 
 ## Current Games
 
+- Wordle
 - CodeNames*
-- Wordle*
 - TicTacToe*
 - BlackJack*
 

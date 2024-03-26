@@ -5,7 +5,7 @@ import discord
 from datetime import datetime, timedelta
 from discord.ext import commands
 from dotenv import load_dotenv
-from games import codenames, wordle
+from games import wordle
 
 # Private Key
 load_dotenv()
@@ -17,47 +17,21 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Load info of games
-games = {"CodeNames": codenames, "Wordle": wordle}
+games = {"Wordle": wordle}
 game_req = datetime.utcnow() - timedelta(seconds=10)
-user_req = ""
 
 active_games = {}
 
 def get_sender_name(message):
+    """Returns string of user's nickname or global name."""
     try:
         return message.author.nick
     except:
         return message.author.global_name
 
-def refresh_status(connection):
-    """Refreshes status of a conversation."""
-    # Pop expired Games (10 minutes)
-    cur = connection.execute('''
-    SELECT ConversationID
-    FROM servers
-    WHERE status > 0 AND LastMessageTime < DATETIME('now', '-600 seconds')
-    ''')   
-    expired_games = cur.fetchall()
-    
-    for hit in expired_games:
-        active_games.pop(hit[0], None)
-
-    cur = connection.execute('''
-    UPDATE servers
-    SET status = -1
-    WHERE status > 0 AND LastMessageTime < DATETIME('now', '-600 seconds')
-    ''')
-
-    # Gives 10 seconds to select a game
-    cur = connection.execute('''
-    UPDATE servers
-    SET status = -1
-    WHERE status = 0 AND LastMessageTime < DATETIME('now', '-10 seconds')
-    ''')
-    connection.commit()
-
 def register_server(connection, message):
-    current_datetime = datetime.utcnow()  # Use utcnow() to get the UTC time
+    """Registers Server into DB."""
+    current_datetime = datetime.utcnow()
     unix_time = int(current_datetime.timestamp())
 
     if message.guild:
@@ -66,16 +40,15 @@ def register_server(connection, message):
         guild_name = message.guild.name
         channel_id = message.channel.id
         channel_name = message.channel.name
-        channel_type = True  # Assuming text channels, adjust as needed
+        channel_type = True
     else:
         # Message is from a DM (Direct Message)
         guild_id = None
         guild_name = None
         channel_id = message.channel.id
         channel_name = None
-        channel_type = False  # Assuming DM, adjust as needed
+        channel_type = False
         
-
     # Insert into the servers table
     cur = connection.execute('''
     INSERT INTO servers (GuildID, GuildName, ChannelID, ChannelName, ChannelType, LastMessageTime, Status, LastMessageSent)
@@ -102,7 +75,7 @@ def register_server(connection, message):
     return result
 
 def register_message(connection, message):
-    # Registers Server if not already
+    """Updates db by time of last message sent and registers servers."""
     guild_id = message.guild.id if message.guild is not None else None
     channel_id = message.channel.id if message.channel.id is not None else None
 
@@ -141,10 +114,14 @@ async def start_game(connection, message, convo_id, game_id):
 
     cur = connection.execute("UPDATE servers SET Status = ? WHERE ConversationID = ?", (game_id, convo_id,))
     connection.commit()
-    await games[sorted(games.keys())[game_id - 1]](message.channel)
-   
+    active_games[convo_id] = games[sorted(games.keys())[game_id - 1]](message, convo_id)
+    if game_id - 1 == 0:
+        """Wordle."""
+        embedVar = discord.Embed(title="Wordle:", description=f"Guesses Remaining: 6\n", color=0x5865F2)
+        await message.channel.send(embed=embedVar)
 
 async def menu(connection, message, convo_id):
+    """Offers the user to begin a game."""
     cur = connection.execute('''
             SELECT LastMessageSent
             FROM servers
@@ -164,7 +141,7 @@ async def menu(connection, message, convo_id):
     out_msg += f'Respond in 10 seconds with one of the following number(s):\n'
     
     embed = discord.Embed(
-    title="Game Menu",
+    title="Game Menu 🕹️",
     description=out_msg,
     color=discord.Color.blue()  # You can set a color for the embed
     )
@@ -174,10 +151,17 @@ async def menu(connection, message, convo_id):
     
     await message.channel.send(embed=embed)
     
+    cur = connection.execute('''
+    UPDATE servers
+    SET status = 0
+    WHERE ConversationID = ?
+    ''', (convo_id,))
+
     connection.commit()
 
 async def message_handler(connection, message, convo_id, status):
-    print(status)
+    """Handles types of user input (Menu, Begining Games, Continuing Games)."""
+
     if message.content == f"<@{bot.user.id}>" and status == -1:
         await menu(connection, message, convo_id)
         
@@ -185,8 +169,23 @@ async def message_handler(connection, message, convo_id, status):
         if int(message.content) <= len(games) and int(message.content) > 0:
             await start_game(connection, message, convo_id, int(message.content))
         else:
-            out_msg = f"Error Not Valid Game:\nPlease give a number in the range of 1 to {len(games)}"
-            await message.channel.send(out_msg)
+            error_msg = f"Please give a number between 1 - {len(games)}"
+            embedVar = discord.Embed(title="❌Error Not Valid Game❌", description=error_msg, color=0xFF1010)
+            await message.channel.send(embed=embedVar)
+    elif status > 0:
+        try:
+            await active_games[convo_id].play_round(message)
+            if active_games[convo_id].completed:
+                active_games.pop(convo_id)
+                cursor = connection.cursor()
+                cursor.execute("""DELETE FROM servers WHERE ConversationID = ? """, (convo_id,))
+                connection.commit()
+        except KeyError:
+            embedVar = discord.Embed(title="❌Error Please Try Again❌", color=0xFF1010)
+            await message.channel.send(embed=embedVar)
+            cursor = connection.cursor()
+            cursor.execute("""DELETE FROM servers WHERE ConversationID = ? """, (convo_id,))
+            connection.commit()
 
 @bot.event 
 async def on_ready(): 
